@@ -18,7 +18,11 @@
       <span class="title">试试问我</span>
       <!-- 页码指示器：当前页/总页数  当前页条数 -->
       <span class="page-indicator">{{ currentPage + 1 }} / {{ totalPages }}  {{ currentQuestions.length }} 条</span>
-      <button class="refresh-btn" @click="handleRefresh">
+      <button 
+        v-if="canSlide"
+        class="refresh-btn" 
+        @click="handleRefresh"
+      >
         <span class="refresh-icon">&#10227;</span>
         <span class="refresh-text">换一换</span>
       </button>
@@ -138,6 +142,10 @@ export default {
     // 总页数
     totalPages() {
       return this.pages.length || 1
+    },
+    // 是否支持轮播：数据超过4条时支持（一页最多4条，超过4条才有第二页）
+    canSlide() {
+      return this.allQuestions.length > 4
     }
   },
   mounted() {
@@ -152,8 +160,10 @@ export default {
       })
       this.resizeObserver.observe(this.$refs.measureList)
     })
-    // 启动 10s 自动轮播
-    this.startTimer()
+    // 支持轮播时才启动自动轮播
+    if (this.canSlide) {
+      this.startTimer()
+    }
   },
   beforeDestroy() {
     // 组件销毁前清理定时器和观察器
@@ -165,8 +175,10 @@ export default {
   methods: {
     /**
      * 构建分页
-     * 通过测量层中每个 tag 的 getBoundingClientRect().top 判断它在第几行
-     * 每 2 行切一页，行号超过当前页起始行 + 2 时换页
+     * 规则：
+     * 1. 每页最多4条
+     * 2. 最多3页（3页后循环）
+     * 3. 数据不够一页（<=4条）时不支持轮播
      */
     buildPages() {
       const list = this.$refs.measureList
@@ -174,34 +186,28 @@ export default {
       const tags = list.querySelectorAll('.question-tag')
       if (tags.length === 0) return
 
-      // 单行高度 = tag 高度 + gap
-      const tagHeight = tags[0].offsetHeight
-      const gap = 12
-      const rowHeight = tagHeight + gap
+      const maxPageSize = 4    // 每页最多4条
+      const maxPages = 3       // 最多3页
 
       const pages = []
       let currentPageTags = []
-      let pageStartRow = 0 // 当前页的起始行号
 
-      for (let i = 0; i < tags.length; i++) {
-        const top = tags[i].getBoundingClientRect().top
-        // 计算当前 tag 在第几行（相对于第一个 tag 的偏移 / 行高）
-        const row = Math.round((top - tags[0].getBoundingClientRect().top) / rowHeight)
-
-        // 行号 >= 起始行 + 2，说明进入第三行了，需要换页
-        if (row >= pageStartRow + 2) {
+      for (let i = 0; i < tags.length && pages.length < maxPages; i++) {
+        // 每页最多4条，达到后换页
+        if (currentPageTags.length >= maxPageSize) {
           pages.push(currentPageTags)
           currentPageTags = []
-          pageStartRow = row
         }
         currentPageTags.push(i)
       }
-      // 最后一页
-      if (currentPageTags.length > 0) {
+
+      // 最后一页（非空时，且未超过最大页数）
+      if (currentPageTags.length > 0 && pages.length < maxPages) {
         pages.push(currentPageTags)
       }
 
-      this.pages = pages
+      // 严格限制最多 maxPages 页
+      this.pages = pages.slice(0, maxPages)
       // 如果当前页码超出新总页数，回到第一页
       if (this.currentPage >= pages.length) {
         this.currentPage = 0
@@ -241,13 +247,16 @@ export default {
       this.stopTimer()
     },
 
-    // 鼠标离开：恢复自动轮播
+    // 鼠标离开：支持轮播时恢复自动轮播
     handleMouseLeave() {
-      this.startTimer()
+      if (this.canSlide) {
+        this.startTimer()
+      }
     },
 
-    // 启动 10s 自动轮播
+    // 启动 10s 自动轮播（仅支持轮播时有效）
     startTimer() {
+      if (!this.canSlide) return
       this.stopTimer()
       this.timer = setInterval(() => {
         this.handleRefresh()
